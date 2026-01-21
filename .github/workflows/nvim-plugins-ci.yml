@@ -1,0 +1,112 @@
+name: Neovim Plugin CI
+
+on:
+  workflow_call:
+    inputs:
+      plugin:
+        description: "Plugin name"
+        type: string
+        required: true
+      repo:
+        description: "Repository (owner/repo)"
+        type: string
+        required: true
+      release:
+        description: "Enable release-please"
+        type: boolean
+        default: true
+      docs:
+        description: "Enable minidoc generation"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      has_tests: ${{ steps.check.outputs.has_tests }}
+      has_build: ${{ steps.check.outputs.has_build }}
+      has_minidoc: ${{ steps.check.outputs.has_minidoc }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check scripts
+        id: check
+        run: |
+          echo "has_tests=${{ hashFiles('scripts/test.lua', 'tests/**') != '' }}" >> $GITHUB_OUTPUT
+          echo "has_build=${{ hashFiles('scripts/build.lua') != '' }}" >> $GITHUB_OUTPUT
+          echo "has_minidoc=${{ hashFiles('scripts/minidoc.lua') != '' }}" >> $GITHUB_OUTPUT
+
+  stylua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check .
+
+  debug-check:
+    runs-on: ubuntu-latest
+    name: Check for debug messages
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check for dd() calls
+        run: |
+          if grep -rn "^\s*dd(" --include="*.lua" lua/; then
+            echo "::error::Found dd() debug calls in lua/ directory"
+            exit 1
+          fi
+
+  tests:
+    runs-on: ubuntu-latest
+    needs: config
+    if: needs.config.outputs.has_tests == 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: thenoetrevino/github/neovim@main
+      - name: Run tests
+        run: |
+          if [ -f "scripts/test.lua" ]; then
+            nvim --headless -c "luafile scripts/test.lua" -c "qa!"
+          elif [ -d "tests" ]; then
+            nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}" -c "qa!"
+          fi
+
+  docs:
+    runs-on: ubuntu-latest
+    needs: [config, tests]
+    if: |
+      always() &&
+      inputs.docs &&
+      needs.config.outputs.has_minidoc == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v5
+      - uses: thenoetrevino/github/neovim@main
+        with:
+          mini-nvim: "true"
+      - name: Generate docs with mini.doc
+        run: nvim --headless -c "luafile scripts/minidoc.lua" -c "qa!"
+      - uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore(build): auto-generated vimdocs"
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [tests, docs]
+    if: |
+      always() &&
+      inputs.release &&
+      github.ref == 'refs/heads/main' &&
+      (needs.tests.result == 'success' || needs.tests.result == 'skipped') &&
+      (needs.docs.result == 'success' || needs.docs.result == 'skipped')
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple
