@@ -36,7 +36,7 @@ jobs:
       - name: Check scripts
         id: check
         run: |
-          echo "has_tests=${{ hashFiles('scripts/test.lua', 'tests/**') != '' }}" >> $GITHUB_OUTPUT
+          echo "has_tests=${{ hashFiles('scripts/test.lua', 'scripts/test', 'tests/**') != '' }}" >> $GITHUB_OUTPUT
           echo "has_build=${{ hashFiles('scripts/build.lua') != '' }}" >> $GITHUB_OUTPUT
           echo "has_minidoc=${{ hashFiles('scripts/minidoc.lua') != '' }}" >> $GITHUB_OUTPUT
 
@@ -73,6 +73,8 @@ jobs:
         run: |
           if [ -f "scripts/test.lua" ]; then
             nvim --headless -c "luafile scripts/test.lua" -c "qa!"
+          elif [ -x "scripts/test" ]; then
+            ./scripts/test
           elif [ -d "tests" ]; then
             nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}" -c "qa!"
           fi
