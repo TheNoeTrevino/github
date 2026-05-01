@@ -94,7 +94,7 @@ jobs:
       always() &&
       inputs.docs &&
       needs.config.outputs.has_minidoc == 'true' &&
-      github.ref == 'refs/heads/main' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly') &&
       (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     steps:
       - uses: actions/checkout@v5
